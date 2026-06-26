@@ -18,9 +18,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // ---- config (fill these; both are safe to expose) -------------------------
 const SUPABASE_URL = 'https://ryhsjcmniwpokutmymna.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_1Zp3Nn-Wpf4psda_wFHlkw_hM8Mrqoo';
-const INBOX_DOMAIN = 'jobshiba.ai';   // apex catch-all -> worker (reliable). If your
+const INBOX_DOMAIN = 'jobshiba.com';   // apex catch-all -> worker (reliable). If your
                                       // dashboard offers per-subdomain catch-all, you can
-                                      // switch this to 'inbox.jobshiba.ai'.
+                                      // switch this to 'inbox.jobshiba.com'.
 const CV_BUCKET = 'cv';            // raw uploaded CVs (private bucket)
 const DOCS_BUCKET = 'documents';   // generated CV/CL .docx (private bucket)
 
