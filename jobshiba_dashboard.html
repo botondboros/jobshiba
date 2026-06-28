@@ -747,6 +747,18 @@ Object.assign(window,{ setView,setFilter,toggle,setStatus,toggleStage,openJobUrl
       if (data && data.default_outreach_lang) ACCT.lang = LANG_FROM[data.default_outreach_lang] || 'English';
     }catch(e){}
 
+    // self-heal: if this user uploaded a CV that hasn't been parsed yet, kick off
+    // parse-cv once. It uses the caller's JWT to scope to this user. Fire-and-forget
+    // so it never blocks the dashboard. Won't fire once parsed_cv_json exists.
+    try{
+      const { data: bd } = await JS.sb.from('base_documents')
+        .select('raw_file_key, parsed_cv_json').eq('user_id', user.id).maybeSingle();
+      if (bd && bd.raw_file_key && !bd.parsed_cv_json){
+        JS.sb.functions.invoke('parse-cv').then(()=>{}).catch(()=>{});
+        showToast('Analyzing your CV in the background…');
+      }
+    }catch(e){}
+
     try { await loadJobs(); }
     catch(e){ document.getElementById('main').innerHTML = `<div class="empty"><div class="eh">Couldn't load your jobs</div><p class="es">${(e.message||e)}</p></div>`; return; }
 
