@@ -501,7 +501,7 @@ function vInsights(){
 }
 
 async function vSettings(){
-  if (INBOX === null){ try{ INBOX = await JS.provisionInbox(); }catch(e){ INBOX = '—'; } }
+  // Gmail-poller model: no forwarding inbox to provision anymore.
   return `<div class="pagehead"><div><h1>Settings</h1><div class="sub">Your account and where your jobs come from.</div></div></div>
   <div class="setgrid">
 
@@ -523,7 +523,11 @@ async function vSettings(){
     <div class="setcard">
       <h3>Connected</h3><div class="csub">Where your jobs come from.</div>
       <div class="srow" style="border-top:0"><span class="sl">Google sign-in<small>Your identity</small></span><span class="pill-ok">Connected</span></div>
-      <div class="srow"><span class="sl">Forwarding address<small>Forward LinkedIn alerts here</small></span><span class="mono" style="font-size:11.5px;color:var(--azure-deep)">${esc(INBOX)}</span></div>
+      <div class="srow"><span class="sl">Gmail inbox<small>We read only the job alerts you label "Jobshiba"</small></span>
+        <span id="gmailStatusCell" style="text-align:right">
+          <span id="gmailStatusBadge" class="pill-warn">Not connected</span>
+          <div style="margin-top:7px"><button class="btn-line" id="connectGmailBtn" onclick="connectGmail()">Connect Gmail</button></div>
+        </span></div>
       <div class="srow"><span class="sl">Network import<small>Warm intros</small></span><span class="pill-warn">Later</span></div>
     </div>
 
@@ -592,6 +596,7 @@ async function render(){
   }
   document.querySelectorAll('.navitem,.mobnav button').forEach(b=>b.classList.toggle('on', b.dataset.v===view));
   const on=document.getElementById('onum'); if(on) on.style.display='none';
+  if (view==='settings') { try{ loadGmailStatus(); }catch(e){} }
 }
 function setView(v){ view=v; render(); window.scrollTo({top:0}); }
 function setFilter(f){ filter=f; render(); }
@@ -719,9 +724,47 @@ let toastTimer;
 function showToast(m){const t=document.getElementById('toast');document.getElementById('toasttext').textContent=m;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2800);}
 function signOut(){ if(window.JS&&JS.signOut) JS.signOut(); else location.href='jobshiba_login.html'; }
 
+
+/* ---------- Gmail connect (OAuth via Supabase callback) ---------- */
+const GMAIL_GOOGLE_CLIENT_ID = '138238195844-nvukpt6ulgc5eg05s30531hvomnbrso6.apps.googleusercontent.com';
+const GMAIL_REDIRECT_URI     = 'https://ryhsjcmniwpokutmymna.supabase.co/functions/v1/gmail-oauth-callback';
+const GMAIL_SCOPE            = 'https://www.googleapis.com/auth/gmail.readonly';
+
+async function connectGmail(){
+  let user = USER;
+  if(!user){ try{ user = await JS.currentUser(); }catch(e){} }
+  if(!user){ location.href = 'jobshiba_login.html'; return; }
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.searchParams.set('client_id', GMAIL_GOOGLE_CLIENT_ID);
+  url.searchParams.set('redirect_uri', GMAIL_REDIRECT_URI);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', GMAIL_SCOPE);
+  url.searchParams.set('access_type', 'offline');
+  url.searchParams.set('prompt', 'consent');     // always return a refresh_token
+  url.searchParams.set('state', user.id);          // callback saves this as user_id
+  window.location.href = url.toString();
+}
+
+// Reads the connected Gmail address via a SECURITY DEFINER RPC (my_gmail_email).
+// The RPC returns only the email for the current user — never any token.
+async function loadGmailStatus(){
+  const badge = document.getElementById('gmailStatusBadge');
+  const btn   = document.getElementById('connectGmailBtn');
+  if(!badge) return;
+  try{
+    const { data, error } = await JS.sb.rpc('my_gmail_email');
+    if(!error && data){
+      badge.className = 'pill-ok';
+      badge.textContent = 'Connected · ' + data;
+      if(btn) btn.textContent = 'Reconnect Gmail';
+    }
+  }catch(e){ /* leave as "Not connected" */ }
+}
+
 /* expose handlers for inline onclick (module scope can't see these otherwise) */
 Object.assign(window,{ setView,setFilter,toggle,setStatus,toggleStage,openJobUrl,openForm,
-  downloadDocx,savePdf,uploadDoc,onDocFile,exportApps,saveAccountLang,faqToggle,sendSupport,signOut,showToast });
+  downloadDocx,savePdf,uploadDoc,onDocFile,exportApps,saveAccountLang,faqToggle,sendSupport,signOut,showToast,
+  connectGmail,loadGmailStatus });
 </script>
 
 <script type="module">
@@ -732,6 +775,21 @@ Object.assign(window,{ setView,setFilter,toggle,setStatus,toggleStage,openJobUrl
     try { user = await JS.currentUser(); } catch(e){}
     if (!user) { location.href = 'jobshiba_login.html'; return; }
     USER = user;
+
+    // Handle return from Gmail OAuth (?gmail=connected&email=... or ?gmail=error&reason=...)
+    try{
+      const gp = new URLSearchParams(location.search);
+      const gflag = gp.get('gmail');
+      if (gflag === 'connected'){
+        showToast('Gmail connected: ' + (gp.get('email') || ''));
+        view = 'settings';
+        history.replaceState({}, '', location.pathname);
+      } else if (gflag === 'error'){
+        showToast('Gmail connection failed: ' + (gp.get('reason') || 'unknown'));
+        view = 'settings';
+        history.replaceState({}, '', location.pathname);
+      }
+    }catch(e){}
     ACCT.email = user.email || '';
     ACCT.name  = (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name)) || (user.email ? user.email.split('@')[0] : 'You');
 
