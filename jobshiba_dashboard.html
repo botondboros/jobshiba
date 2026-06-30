@@ -338,7 +338,7 @@ async function vToday(){
       <div class="eb">Automatic · runs in the background</div>
       <div class="ht">${review.length ? `${review.length} match${review.length===1?'':'es'} waiting for review` : 'No new matches right now'}</div>
       <div class="hs">${review.length
-        ? `Your hunt reads the LinkedIn alerts you forward, scores each role against your preferences and drafts tailored documents for the strong matches. ${withDocs2} of these already have a CV &amp; cover letter ready.`
+        ? `Your hunt reads the LinkedIn alerts in your connected Gmail, scores each role against your preferences and drafts tailored documents for the strong matches. ${withDocs2} of these already have a CV &amp; cover letter ready.`
         : `New matches appear here automatically as fresh LinkedIn alerts arrive and get scored. Nothing to do right now.`}</div>
     </div>
     <div class="right">
@@ -349,7 +349,7 @@ async function vToday(){
   if (!review.length){
     return `<div class="pagehead"><div><h1>Today's hunt</h1><div class="sub">${niceDate()}</div></div></div>${banner}
       <div class="empty"><div class="eh">You're all caught up</div>
-        <p class="es">There are no matches waiting. The engine runs on its own — when new LinkedIn alerts you've forwarded get scored, the strong ones will show up here with documents drafted.
+        <p class="es">There are no matches waiting. The engine runs on its own — when new LinkedIn alerts in your connected Gmail get scored, the strong ones will show up here with documents drafted.
         Want more each day? Subscribe to more job alerts on LinkedIn. <a href="https://www.linkedin.com/jobs/" target="_blank" rel="noopener" style="color:var(--azure-deep);font-weight:600">Open LinkedIn Jobs ↗</a></p></div>`;
   }
 
@@ -548,8 +548,8 @@ function saveAccountLang(){
 }
 
 const FAQS=[
-  ["How does the hunt work?","Jobshiba reads the LinkedIn job-alert emails you forward to your private address, scores each role against your preferences, and drafts a tailored CV and cover letter for the strong matches. They appear on Today's hunt for you to review."],
-  ["How often does it run?","Automatically, in the background, every couple of hours — so new alerts you forward are picked up and scored without you doing anything. LinkedIn itself refreshes its alerts about once a day."],
+  ["How does the hunt work?","Jobshiba reads the LinkedIn job-alert emails in your connected Gmail, scores each role against your preferences, and drafts a tailored CV and cover letter for the strong matches. They appear on Today's hunt for you to review."],
+  ["How often does it run?","Automatically, in the background, every couple of hours — so new alerts in your connected Gmail are picked up and scored without you doing anything. LinkedIn itself refreshes its alerts about once a day."],
   ["Why do some jobs have no documents?","Tailored documents are generated only for roles that clear your minimum match score, and only once your CV has been parsed. Lower-scoring roles are still listed, just without drafts."],
   ["Does Jobshiba apply for me?","No. It prepares the documents; you submit each application yourself on the company's form. Nothing is ever sent on your behalf."],
   ["Is my data safe?","We only read the job-alert emails you route to us. Everything is private to your account. We never post or message anyone on your behalf."],
@@ -823,6 +823,28 @@ Object.assign(window,{ setView,setFilter,toggle,setStatus,toggleStage,openJobUrl
         history.replaceState({}, '', location.pathname);
       }
     }catch(e){}
+
+    // First-run: if this user has no preferences yet, route them through onboarding.
+    // (The "Continue with Google" button on the login page lands here directly,
+    // skipping setup, so a brand-new tester would otherwise see a bare dashboard.)
+    try{
+      const _gp = new URLSearchParams(location.search);
+      if(!_gp.get('gmail')){ // don't bounce someone mid Gmail-return
+        let _pref0 = null, _prefErr = null;
+        try{
+          const r = await JS.sb.from('preferences')
+            .select('user_id').eq('user_id', user.id).maybeSingle();
+          _pref0 = r.data; _prefErr = r.error;
+        }catch(ex){ _prefErr = ex; }
+        if(_prefErr){ console.warn('[first-run] preferences check error:', _prefErr); }
+        console.log('[first-run] user', user.id, 'pref row:', _pref0);
+        // No preferences row (or the check errored) => treat as a brand-new user
+        // and send them through onboarding. Erring toward onboarding is safe:
+        // a returning user with prefs will have a row and stay on the dashboard.
+        if(!_pref0){ location.href = 'jobshiba_onboarding.html'; return; }
+      }
+    }catch(e){ console.warn('[first-run] routing failed, staying on dashboard:', e); }
+
     ACCT.email = user.email || '';
     ACCT.name  = (user.user_metadata && (user.user_metadata.full_name || user.user_metadata.name)) || (user.email ? user.email.split('@')[0] : 'You');
 
