@@ -745,20 +745,53 @@ async function connectGmail(){
   window.location.href = url.toString();
 }
 
-// Reads the connected Gmail address via a SECURITY DEFINER RPC (my_gmail_email).
-// The RPC returns only the email for the current user — never any token.
+// Reads connection status via a SECURITY DEFINER RPC (my_gmail_status).
+// The RPC returns only email + last_synced_at for the current user — never any token.
+// In beta the Google OAuth project is in "Testing", so refresh tokens expire after
+// ~7 days; when the poller can no longer sync, last_synced_at goes stale. We surface
+// a "reconnect needed" hint so the user knows to click Reconnect Gmail.
+const GMAIL_STALE_HOURS = 24; // if no successful sync in this many hours -> warn
+
 async function loadGmailStatus(){
   const badge = document.getElementById('gmailStatusBadge');
   const btn   = document.getElementById('connectGmailBtn');
+  const cell  = document.getElementById('gmailStatusCell');
   if(!badge) return;
+  // clear any previous warning line
+  const oldWarn = document.getElementById('gmailStaleWarn');
+  if(oldWarn) oldWarn.remove();
   try{
-    const { data, error } = await JS.sb.rpc('my_gmail_email');
-    if(!error && data){
+    const { data, error } = await JS.sb.rpc('my_gmail_status');
+    const row = Array.isArray(data) ? data[0] : data; // table-returning RPC -> array
+    if(!error && row && row.email){
       badge.className = 'pill-ok';
-      badge.textContent = 'Connected · ' + data;
+      badge.textContent = 'Connected · ' + row.email;
       if(btn) btn.textContent = 'Reconnect Gmail';
+
+      // staleness check
+      const last = row.last_synced_at ? new Date(row.last_synced_at) : null;
+      const hrs = last ? (Date.now() - last.getTime()) / 36e5 : Infinity;
+      if(hrs > GMAIL_STALE_HOURS){
+        badge.className = 'pill-warn';
+        if(cell){
+          const w = document.createElement('div');
+          w.id = 'gmailStaleWarn';
+          w.style.cssText = 'margin-top:7px;font-size:11.5px;color:#9a6a1f;line-height:1.4';
+          w.innerHTML = last
+            ? 'Last sync ' + timeAgo(last) + '. Beta Gmail links expire every ~7 days — click <b>Reconnect Gmail</b> to resume.'
+            : 'No sync yet. If this persists, click <b>Reconnect Gmail</b>.';
+          cell.appendChild(w);
+        }
+      }
     }
   }catch(e){ /* leave as "Not connected" */ }
+}
+
+function timeAgo(d){
+  const s = Math.max(0, (Date.now() - d.getTime())/1000);
+  if(s < 3600) return Math.round(s/60) + ' min ago';
+  if(s < 86400) return Math.round(s/3600) + ' h ago';
+  return Math.round(s/86400) + ' days ago';
 }
 
 /* expose handlers for inline onclick (module scope can't see these otherwise) */
