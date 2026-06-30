@@ -264,6 +264,7 @@
         <span>Feel free to save your progress and pick it back up later.</span>
       </div>
       <a href="jobshiba_login.html" style="display:inline-block;margin-top:16px;font-size:12.5px;color:#9fd0f3;text-decoration:none;font-weight:600">Already have an account? Sign in →</a>
+      <a href="jobshiba_privacy.html" target="_blank" rel="noopener" style="display:inline-block;margin-top:10px;font-size:11.5px;color:#7fa4c7;text-decoration:none;font-weight:500">Privacy Policy ↗</a>
     </aside>
 
     <main class="pane">
@@ -321,13 +322,13 @@ const state = {
   },
   profileSummary:"15+ years in digital transformation, product & marketing leadership across CEE. Head of BI & Digital Solutions at Visit Hungary (team of 30). Google (8y): Head of Marketing, CE launches of Google Pay / YouTube Music across 10+ markets. PayPal (2y, Warsaw): BD across 28 countries. Native Hungarian, C1 English, C1 German. Targets travel-tech / OTA platforms (Amadeus, Booking.com, Skyscanner, GetYourGuide).",
   langEn:true, langHu:true, langDe:true,
-  alertMethod:null, alertCopied:false, apiConnected:false, manualOpen:false, exportRequested:false, exportUploaded:false,
+  alertMethod:null, alertCopied:false, alertsConfirmed:false, apiConnected:false, manualOpen:false, exportRequested:false, exportUploaded:false,
   outreachLang:"English", review:true, launched:false, maxReached:0
 };
 
 function canAdvance(){
   switch(steps[state.i].key){
-    case 'alerts':  return !!state.alertMethod;
+    case 'alerts':  return !!state.alertsConfirmed;
     case 'cv':      return state.cvUploaded;
     default:        return true;
   }
@@ -509,30 +510,22 @@ function body(){
     <div class="note" style="margin-top:14px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
       <span>LinkedIn refreshes these alerts <b>once a day</b>, so each hunt brings a fresh daily batch — your results update daily, not hourly.</span></div>
 
-    <div style="font-family:'Sora';font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--azure);margin-top:22px">Route the alerts to Jobshiba</div>
-    <div class="sub" style="margin:4px 0 12px">Tell us where those alert emails land so we can read and rank them.</div>
-    <div class="optcards">
-      <div class="ocard ${state.alertMethod==='forward'?'sel':''}" onclick="setAlert('forward')">
-        <span class="pillrec">Recommended</span>
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="#2E9BE0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l8 6 8-6"/><rect x="4" y="5" width="16" height="14" rx="2"/></svg>
-        <div class="ot">Forward to your inbox</div>
-        <div class="od">Any email provider. Auto-forward LinkedIn alerts to a private Jobshiba address.</div>
-      </div>
-      <div class="ocard ${state.alertMethod==='gmail'?'sel':''}" onclick="setAlert('gmail')">
-        <span class="pillrec" style="background:var(--muted)">Soon</span>
-        <svg class="ico" viewBox="0 0 24 24" fill="none"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="#fff" stroke="#dadce0"/><path d="M3 6l9 7 9-7" stroke="#ea4335" stroke-width="2" fill="none"/><path d="M3 6v12" stroke="#4285f4" stroke-width="2.4"/><path d="M21 6v12" stroke="#34a853" stroke-width="2.4"/></svg>
-        <div class="ot">Connect Gmail</div>
-        <div class="od">One-click Gmail connect is coming soon. For now, use forwarding — it works with any provider.</div>
+    <div style="font-family:'Sora';font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--azure);margin-top:22px">Connect your Gmail</div>
+    <div class="sub" style="margin:4px 0 12px">We read your LinkedIn alert emails straight from Gmail — no forwarding, no filters to build.</div>
+    <div class="card">
+      <div style="display:flex;gap:13px;align-items:flex-start">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" style="flex:none"><rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="#fff" stroke="#dadce0"/><path d="M3 6l9 7 9-7" stroke="#ea4335" stroke-width="2" fill="none"/><path d="M3 6v12" stroke="#4285f4" stroke-width="2.4"/><path d="M21 6v12" stroke="#34a853" stroke-width="2.4"/></svg>
+        <div>
+          <div style="font-family:'Sora';font-weight:700;font-size:15px;color:#0C2A4D">One click — right after setup</div>
+          <div class="sub" style="margin:4px 0 0;font-size:13px">Finish the last steps, then connect Gmail in one click from your dashboard (<b>Settings → Connect Gmail</b>). We only read the LinkedIn job alerts — nothing else, and we never send anything on your behalf.</div>
+        </div>
       </div>
     </div>
-    ${state.alertMethod==='gmail'?`
-      <div class="note" style="margin-top:16px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
-        <span>One-click Gmail connect isn't live yet. Pick <b>Forward to your inbox</b> above to get your private address — it takes 30 seconds to set up a Gmail auto-forward rule.</span></div>`:''}
-    ${state.alertMethod==='forward'?`
-      <div class="field" style="margin-top:16px;margin-bottom:8px"><label>Your private Jobshiba address</label></div>
-      <div class="addr"><span class="mono">${state.alertProvisioning?'generating your address…':(state.inboxAddr||'—')}</span>
-        <button class="copy" onclick="copyAddr(this)" ${state.inboxAddr?'':'disabled'}>${state.alertCopied?'Copied ✓':'Copy'}</button></div>
-      <div class="hint" style="font-size:11.5px;color:var(--muted);margin-top:8px">In your mail client, auto-forward LinkedIn job alerts to this address. We parse only those. (In Gmail: Settings → Filters → forward mail from <b>jobalerts-noreply@linkedin.com</b> to the address above.)</div>`:''}
+    <button class="preq ${state.alertsConfirmed?'on':''}" style="margin-top:14px" onclick="confirmAlerts()">
+      <span class="pcheck"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></span>
+      <span class="ptxt"><b>I've turned on at least one LinkedIn job alert</b><span>Email delivery, daily — this is the feed Jobshiba reads. You can add more anytime.</span></span></button>
+    <div class="note amber" style="margin-top:14px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+      <span><b>Beta note:</b> while we're in testing, the Gmail connection needs re-doing about every 7 days — one click from your dashboard each time. We'll flag it there when it's due.</span></div>
 
     <div style="font-size:11px;color:var(--muted);line-height:1.55;margin-top:14px">why alerts and not scraping? linkedin gives no jobs api to third parties — the alerts it emails you are the authorised, unblockable feed, we just rank them better. (screens above are illustrations of linkedin's flow.)</div>`;
     break;
@@ -643,12 +636,12 @@ function body(){
         <div class="srow">${ck()} Signed in <span class="sv">${state.user?(state.user.email||'your account'):'your account'}</span></div>
         <div class="srow">${state.cvUploaded?ck():ck(true)} CV uploaded <span class="sv">${state.cvUploaded?'base profile':'add later'}</span></div>
         <div class="srow">${ck()} Preferences set <span class="sv">${state.prefs.roles.length} roles · min ${state.prefs.minScore}</span></div>
-        <div class="srow">${state.alertMethod?ck():ck(true)} Job alerts <span class="sv">${state.alertMethod==='forward'?'forwarding':(state.alertMethod==='gmail'?'gmail (soon)':'set up')}</span></div>
+        <div class="srow">${state.alertsConfirmed?ck():ck(true)} LinkedIn alerts <span class="sv">${state.alertsConfirmed?'on · connect Gmail on dashboard':'turn on'}</span></div>
         <div class="srow">${net?ck():ck(true)} Network imported <span class="sv">${net?'connected':'optional · later'}</span></div>
         <div class="srow">${ck()} Outreach ready <span class="sv">${state.outreachLang} · review ${state.review?'on':'off'}</span></div>
       </div>
       <div class="note" style="margin-top:18px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <span><b>Your hunt runs automatically.</b> Every couple of hours we read any new LinkedIn alerts you've forwarded, rank the jobs against your preferences, and draft tailored documents for the strong matches. They'll appear on your dashboard — no need to run anything by hand.</span></div>
+        <span><b>Your hunt runs automatically.</b> Once your Gmail is connected, every few hours we read any new LinkedIn alerts, rank the jobs against your preferences, and draft tailored documents for the strong matches. They'll appear on your dashboard — no need to run anything by hand.</span></div>
       <div class="runbox" id="runbox" style="margin-top:14px"><button class="btn primary" style="font-size:15px;padding:13px 26px" onclick="finalize()">Go to my dashboard →</button></div>`;
     break;
   }
@@ -741,6 +734,7 @@ async function setAlert(m){
 }
 function copyAddr(btn){ if(!state.inboxAddr) return; state.alertCopied=true; try{navigator.clipboard.writeText(state.inboxAddr);}catch(e){} btn.textContent='Copied ✓'; }
 function toggleReview(){state.review=!state.review;render();}
+function confirmAlerts(){state.alertsConfirmed=!state.alertsConfirmed;render();}
 
 let toastTimer;
 function showToast(msg){const t=document.getElementById('toast');document.getElementById('toasttext').textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),3400);}
