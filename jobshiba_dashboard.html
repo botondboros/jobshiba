@@ -777,7 +777,7 @@ function renderCvHtml(cv){
 function buildCvDocx(cv, filename){
   if(!window.JSZip){ showToast('Doc engine still loading — try again in a moment'); return; }
   const X = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const TAB = 10773;
+  const TAB = 9638;   // right edge of the text area (A4 11906 - 1134 - 1134); keeps dates on-page
   function runs(text, o){ o=o||{};
     return String(text).split('\n').map((line,i)=>`${i?'<w:br/>':''}<w:r><w:rPr>${o.bold?'<w:b/>':''}${o.italic?'<w:i/>':''}${o.size?`<w:sz w:val="${o.size}"/>`:''}${o.color?`<w:color w:val="${o.color}"/>`:''}</w:rPr><w:t xml:space="preserve">${X(line)}</w:t></w:r>`).join('');
   }
@@ -1103,7 +1103,8 @@ Object.assign(window,{ setView,setFilter,toggle,setStatus,toggleStage,openJobUrl
     // so it never blocks the dashboard. Won't fire once parsed_cv_json exists.
     try{
       const { data: bd } = await JS.sb.from('base_documents')
-        .select('raw_file_key, parsed_cv_json').eq('user_id', user.id).maybeSingle();
+        .select('raw_file_key, parsed_cv_json').eq('user_id', user.id)
+        .order('updated_at', { ascending: false }).limit(1).maybeSingle();
       if (bd){
         if (bd.parsed_cv_json) PROFILE = bd.parsed_cv_json;
         if (bd.raw_file_key && !bd.parsed_cv_json){
