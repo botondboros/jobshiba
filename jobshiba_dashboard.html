@@ -787,6 +787,12 @@ function buildCvDocx(cv, filename){
     const bd = o.rule ? `<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="1" w:color="0C2A4D"/></w:pBdr>` : '';
     return `<w:p><w:pPr>${sp}${bd}${jc}</w:pPr>${runs(text,o)}</w:p>`;
   }
+  // shaded full-width bar (navy contact bar / light skills box)
+  function shadedPara(text, fill, o){ o=o||{};
+    const jc = o.align ? `<w:jc w:val="${o.align}"/>` : '';
+    const sp = o.space!=null ? `<w:spacing w:after="${o.space}"/>` : '';
+    return `<w:p><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>${sp}${jc}</w:pPr>${runs(text,o)}</w:p>`;
+  }
   // role header line: "Role (reports)" left + dates right via a right tab stop
   function roleLine(left, right){
     return `<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="${TAB}"/></w:tabs><w:spacing w:after="40"/></w:pPr>`
@@ -801,8 +807,8 @@ function buildCvDocx(cv, filename){
   let b='';
   b += para(cv.name||'', {bold:true, size:40, color:'0C2A4D', align:'center', space:20});
   if(cv.title) b += para(cv.title, {bold:true, size:24, color:'1B6FB8', align:'center', space:60});
-  const c = cv.contact||{}; const cbits=[c.location,c.phone,c.email,c.linkedin].filter(Boolean).join('  •  ');
-  if(cbits) b += para(cbits, {size:18, color:'505050', align:'center', space:160});
+  const c = cv.contact||{}; const cbits=[c.location,c.phone,c.email,c.linkedin].filter(Boolean).join('   •   ');
+  if(cbits) b += shadedPara(cbits, '0C2542', {size:18, color:'FFFFFF', align:'center', space:160});
   if(cv.summary) b += para(cv.summary, {italic:true, size:21, space:160});
 
   if((cv.key_accomplishments||[]).length){
@@ -811,7 +817,7 @@ function buildCvDocx(cv, filename){
   }
   if((cv.skills||[]).length){
     b += heading('Key Skills');
-    b += para(cv.skills.join(', '), {size:20, space:160});
+    b += shadedPara(cv.skills.join(', '), 'EAF3FB', {size:20, align:'center', space:160});
   }
   if((cv.experience||[]).length){
     b += heading('Professional Experience');
@@ -875,16 +881,30 @@ function genPDF(doc,filename){
   doc.sections.forEach(s=>{ if(s.h) put(s.h,11,'bold',[12,42,77],2); put(s.b,10,'normal',[40,44,50],10); });
   pdf.save(filename); return true;
 }
+// Robust print-to-PDF: render the CV HTML into a hidden same-page iframe and
+// print that iframe. Avoids pop-up blocking (incognito) and prints only the CV.
+function printCvHtml(html){
+  let fr = document.getElementById('__cvprint');
+  if(fr) fr.remove();
+  fr = document.createElement('iframe');
+  fr.id = '__cvprint';
+  fr.setAttribute('aria-hidden','true');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(fr);
+  const d = fr.contentWindow.document;
+  d.open(); d.write(html); d.close();
+  const go = ()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ showToast('Could not open the print dialog'); } };
+  const imgs = Array.from(d.images || []);
+  Promise.all(imgs.map(im => im.complete ? Promise.resolve() : new Promise(r => { im.onload = im.onerror = r; })))
+    .then(()=> setTimeout(go, 250));
+}
+
 function savePdf(id,type){
   const j=jobById(id);
   if(type==='CV'){
     const cv=getMergedCv(j);
     if(!cv){showToast('No CV content yet — is your CV parsed?');return;}
-    const w=window.open('','_blank');
-    if(!w){showToast('Allow pop-ups to save the CV as PDF');return;}
-    w.document.open(); w.document.write(renderCvHtml(cv)); w.document.close();
-    const go=()=>{ try{ w.focus(); w.print(); }catch(e){} };
-    if(w.document.readyState==='complete') setTimeout(go,500); else w.onload=()=>setTimeout(go,500);
+    printCvHtml(renderCvHtml(cv));
     showToast('Choose "Save as PDF" in the print dialog');
     return;
   }
