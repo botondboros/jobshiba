@@ -270,6 +270,8 @@ let ACCT = { name:'', email:'', lang:'English' };
 let INBOX = null;         // forwarding address (alert_sources)
 const docCache = {};      // jobId -> { cv:{...}|null, cl:{...}|null, loaded:true }
 let userDocFiles = {};    // jobId -> { CV:name, CL:name } for locally re-uploaded edits
+let PROFILE = null;       // parsed_cv_json for the signed-in user (full career facts)
+let PHOTO_B64 = '';       // user-uploaded CV photo as base64 (empty -> CV renders without a photo)
 
 let view = 'today', filter = 'all';
 let faqOpen = -1;
@@ -657,6 +659,204 @@ function getDoc(j,type){
 }
 function fname(j,type,ext){ return `${type}_${(ACCT.name||'Jobshiba').replace(/[^A-Za-z0-9]/g,'_')}_${j.company.replace(/[^A-Za-z0-9]/g,'')}.${ext}`; }
 
+/* ---------- gold-standard CV: merge parsed_cv_json + tailored overlay ---------- */
+function _esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Merge the user's full parsed career facts (PROFILE) with the per-job tailored
+// overlay (content_json). The overlay tailors title/summary/accomplishments (and,
+// once score-generate provides it, per-role bullets); everything else comes from
+// the parsed CV so the document is complete, not a 3-field stub.
+function getMergedCv(j){
+  const d = docCache[j.id] || {}; const c = d.cv;
+  if(!c && !PROFILE) return null;
+  const p = PROFILE || {}; const ov = c || {}; const ct = p.contact || {};
+  return {
+    name: p.name || ACCT.name || 'Your name',
+    title: ov.cv_title || p.headline || (j && j.role) || '',
+    contact: { location: ct.location||'', phone: ct.phone||'', email: ct.email||ACCT.email||'', linkedin: ct.linkedin||'' },
+    photo_b64: PHOTO_B64 || '',
+    summary: ov.professional_intro || p.summary || '',
+    key_accomplishments: Array.isArray(ov.key_achievements) ? ov.key_achievements : [],
+    skills: Array.isArray(p.skills) ? p.skills : [],
+    experience: (Array.isArray(ov.experience) && ov.experience.length) ? ov.experience : (Array.isArray(p.experience) ? p.experience : []),
+    additional_experience: Array.isArray(p.additional_experience) ? p.additional_experience : [],
+    certifications: Array.isArray(p.certifications) ? p.certifications : [],
+    education: Array.isArray(p.education) ? p.education : [],
+    languages: Array.isArray(p.languages) ? p.languages : []
+  };
+}
+
+const CV_CSS = `
+  @page { size:A4; margin:13mm 14mm; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; padding:0; }
+  body { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; color:#1a1a1a; font-size:10.5pt; line-height:1.4; }
+  .sheet { width:182mm; margin:0 auto; }
+  table { border-collapse:collapse; width:100%; }
+  .namebar { margin-bottom:2px; }
+  .namebar td { vertical-align:middle; }
+  .namebar .rcell { width:120px; }
+  .namebar .rcell div { border-top:1.5px solid #1f3a5f; height:0; margin:0 6px; }
+  .name { font-family:Garamond,"EB Garamond",Georgia,serif; font-weight:700; font-size:23pt; letter-spacing:1px; color:#111; text-align:center; white-space:nowrap; }
+  .subtitle { text-align:center; font-weight:700; font-size:12pt; color:#0c2a4d; margin-top:1px; }
+  .contactbar { background:#0c2542; color:#fff; text-align:center; padding:7px 10px; font-size:9.5pt; margin-top:11px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .toptbl { margin-top:13px; }
+  .summary { font-style:italic; text-align:justify; }
+  h2 { font-size:11pt; font-weight:700; color:#0c2a4d; text-transform:uppercase; letter-spacing:.4px; border-bottom:1.5px solid #0c2a4d; padding-bottom:2px; margin:17px 0 7px; }
+  h2.noline { border-bottom:0; text-decoration:underline; }
+  .ka { text-align:justify; }
+  .skills { background:#eaf3fb; padding:9px 12px; text-align:center; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .role { margin-bottom:11px; page-break-inside:avoid; }
+  .rhdr td { vertical-align:top; }
+  .rco { font-weight:700; }
+  .rrole { font-weight:700; }
+  .rdate { text-align:right; font-weight:700; white-space:nowrap; width:150px; }
+  .rintro { margin:3px 0; }
+  .role ul { margin:5px 0 0; padding-left:20px; }
+  .role li { margin-bottom:3px; text-align:justify; }
+  .addtbl td { padding-bottom:3px; vertical-align:top; }
+  .adddate { text-align:right; white-space:nowrap; width:160px; }
+  ul.plain { margin:6px 0 0; padding-left:20px; }
+  ul.plain li { margin-bottom:3px; }
+  .langs { margin:6px 0 0; }
+`;
+
+// Full gold-standard CV as a self-contained HTML document (used for PDF via print).
+function renderCvHtml(cv){
+  const c = cv.contact || {};
+  const bits = [];
+  if(c.location) bits.push(_esc(c.location));
+  if(c.phone)    bits.push(_esc(c.phone));
+  if(c.email)    bits.push(_esc(c.email));
+  if(c.linkedin) bits.push('<u>'+_esc(c.linkedin)+'</u>');
+  const contact = bits.join(' &bull; ');
+  const photoCell = cv.photo_b64
+    ? '<td width="160" valign="top" style="padding-right:16px;"><img src="data:image/jpeg;base64,'+cv.photo_b64+'" width="150" height="185" style="width:150px;height:185px;object-fit:cover;display:block;"></td>'
+    : '';
+  const topTable = '<table class="toptbl" cellpadding="0" cellspacing="0"><tr>'+photoCell+'<td valign="top"><div class="summary">'+_esc(cv.summary)+'</div></td></tr></table>';
+  const ka = (cv.key_accomplishments||[]).map(_esc).join(' &nbsp;|&nbsp; ');
+  const skills = (cv.skills||[]).map(_esc).join(', ');
+  const expBlock = (e)=>{
+    const loc = e.location ? ' &bull; '+_esc(e.location) : '';
+    const rep = (e.reports!=null && e.reports!=='') ? ' (direct reports: '+_esc(e.reports)+')' : '';
+    let dates = (_esc(e.start||'')+' &ndash; '+_esc(e.end||'')).trim();
+    if(dates==='&ndash;') dates='';
+    const intro = e.intro ? '<p class="rintro">'+_esc(e.intro)+'</p>' : '';
+    const bullets = (e.bullets||[]).map(b=>'<li>'+_esc(b)+'</li>').join('');
+    return '<div class="role"><table class="rhdr" cellpadding="0" cellspacing="0"><tr>'
+      +'<td class="rleft"><div class="rco">'+_esc(e.company||'')+loc+'</div>'
+      +'<div class="rrole">'+_esc(e.role||e.title||'')+rep+'</div></td>'
+      +'<td class="rdate">'+dates+'</td></tr></table>'+intro+'<ul>'+bullets+'</ul></div>';
+  };
+  const experience = (cv.experience||[]).map(expBlock).join('');
+  let additional='';
+  const add = cv.additional_experience||[];
+  if(add.length){
+    const rows = add.map(a=>'<tr><td class="addmain"><b>'+_esc(a.company||'')+'</b>'
+      +(a.location?' &bull; '+_esc(a.location):'')
+      +(a.role?' &bull; '+_esc(a.role):'')
+      +'</td><td class="adddate">'+_esc(a.dates||'')+'</td></tr>').join('');
+    additional = '<h2>Additional Experience</h2><table class="addtbl" cellpadding="0" cellspacing="0">'+rows+'</table>';
+  }
+  const sec = (title,items)=> (!items||!items.length) ? '' : '<h2>'+title+'</h2><ul class="plain">'+items.map(i=>'<li>'+_esc(i)+'</li>').join('')+'</ul>';
+  const certs = sec('Professional Certifications', cv.certifications);
+  const edu   = sec('Education', cv.education);
+  const langs = (cv.languages && cv.languages.length) ? '<h2>Languages</h2><p class="langs">'+_esc(cv.languages.join('; '))+'</p>' : '';
+  const subtitle = cv.title ? '<div class="subtitle">'+_esc(cv.title)+'</div>' : '';
+  const kaSec = ka ? '<h2 class="noline">Key Accomplishments</h2><div class="ka">'+ka+'</div>' : '';
+  const skSec = skills ? '<h2 class="noline">Key Skills</h2><div class="skills">'+skills+'</div>' : '';
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>'+_esc(cv.name)+' — CV</title><style>'+CV_CSS+'</style></head><body><div class="sheet">'
+    +'<table class="namebar" cellpadding="0" cellspacing="0"><tr><td class="rcell"><div></div></td><td class="name">'+_esc((cv.name||'').toUpperCase())+'</td><td class="rcell"><div></div></td></tr></table>'
+    +subtitle+'<div class="contactbar">'+contact+'</div>'+topTable+kaSec+skSec
+    +'<h2>Professional Experience</h2>'+experience+additional+certs+edu+langs
+    +'</div></body></html>';
+}
+
+// Full editable DOCX with all sections (complete, not a stub). Photo/navy-bar are
+// carried by the PDF; the DOCX is a clean, professional, editable version.
+function buildCvDocx(cv, filename){
+  if(!window.JSZip){ showToast('Doc engine still loading — try again in a moment'); return; }
+  const X = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const TAB = 10773;
+  function runs(text, o){ o=o||{};
+    return String(text).split('\n').map((line,i)=>`${i?'<w:br/>':''}<w:r><w:rPr>${o.bold?'<w:b/>':''}${o.italic?'<w:i/>':''}${o.size?`<w:sz w:val="${o.size}"/>`:''}${o.color?`<w:color w:val="${o.color}"/>`:''}</w:rPr><w:t xml:space="preserve">${X(line)}</w:t></w:r>`).join('');
+  }
+  function para(text, o){ o=o||{};
+    const jc = o.align ? `<w:jc w:val="${o.align}"/>` : '';
+    const sp = o.space!=null ? `<w:spacing w:after="${o.space}"/>` : '';
+    const bd = o.rule ? `<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="1" w:color="0C2A4D"/></w:pBdr>` : '';
+    return `<w:p><w:pPr>${sp}${bd}${jc}</w:pPr>${runs(text,o)}</w:p>`;
+  }
+  // role header line: "Role (reports)" left + dates right via a right tab stop
+  function roleLine(left, right){
+    return `<w:p><w:pPr><w:tabs><w:tab w:val="right" w:pos="${TAB}"/></w:tabs><w:spacing w:after="40"/></w:pPr>`
+      +`<w:r><w:rPr><w:b/><w:sz w:val="20"/><w:color w:val="1a1a1a"/></w:rPr><w:t xml:space="preserve">${X(left)}</w:t></w:r>`
+      +`<w:r><w:rPr><w:b/><w:sz w:val="20"/></w:rPr><w:tab/><w:t xml:space="preserve">${X(right)}</w:t></w:r></w:p>`;
+  }
+  function bullet(text){
+    return `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr><w:spacing w:after="40"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">${X(text)}</w:t></w:r></w:p>`;
+  }
+  function heading(t){ return para(t,{bold:true,size:22,color:'0C2A4D',space:80,rule:true}); }
+
+  let b='';
+  b += para(cv.name||'', {bold:true, size:40, color:'0C2A4D', align:'center', space:20});
+  if(cv.title) b += para(cv.title, {bold:true, size:24, color:'1B6FB8', align:'center', space:60});
+  const c = cv.contact||{}; const cbits=[c.location,c.phone,c.email,c.linkedin].filter(Boolean).join('  •  ');
+  if(cbits) b += para(cbits, {size:18, color:'505050', align:'center', space:160});
+  if(cv.summary) b += para(cv.summary, {italic:true, size:21, space:160});
+
+  if((cv.key_accomplishments||[]).length){
+    b += heading('Key Accomplishments');
+    cv.key_accomplishments.forEach(a=> b += bullet(a));
+  }
+  if((cv.skills||[]).length){
+    b += heading('Key Skills');
+    b += para(cv.skills.join(', '), {size:20, space:160});
+  }
+  if((cv.experience||[]).length){
+    b += heading('Professional Experience');
+    cv.experience.forEach(e=>{
+      const loc = e.location ? '  •  '+e.location : '';
+      const rep = (e.reports!=null && e.reports!=='') ? ' (direct reports: '+e.reports+')' : '';
+      const dates = [e.start,e.end].filter(Boolean).join(' – ');
+      b += para((e.company||'')+loc, {bold:true, size:20, space:20});
+      b += roleLine((e.role||e.title||'')+rep, dates);
+      if(e.intro) b += para(e.intro, {size:20, space:40});
+      (e.bullets||[]).forEach(x=> b += bullet(x));
+      b += para('', {size:10, space:60});
+    });
+  }
+  if((cv.additional_experience||[]).length){
+    b += heading('Additional Experience');
+    cv.additional_experience.forEach(a=>{
+      const left=[a.company,a.location,a.role].filter(Boolean).join('  •  ');
+      b += roleLine(left, a.dates||'');
+    });
+  }
+  if((cv.certifications||[]).length){ b += heading('Professional Certifications'); cv.certifications.forEach(x=> b += bullet(x)); }
+  if((cv.education||[]).length){ b += heading('Education'); cv.education.forEach(x=> b += bullet(x)); }
+  if((cv.languages||[]).length){ b += heading('Languages'); b += para(cv.languages.join('; '), {size:20, space:120}); }
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${b}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`;
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdNum" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>`;
+  const numbering = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`;
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', contentTypes);
+  zip.folder('_rels').file('.rels', rels);
+  const w = zip.folder('word');
+  w.file('document.xml', documentXml);
+  w.file('numbering.xml', numbering);
+  w.folder('_rels').file('document.xml.rels', docRels);
+  zip.generateAsync({type:'blob'}).then(blob=>{
+    const url=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+    showToast(`Downloaded ${filename} — edit in Word or Google Docs`);
+  });
+}
+
 function genPDF(doc,filename){
   if(!(window.jspdf&&window.jspdf.jsPDF)){showToast('PDF engine still loading — try again in a moment');return false;}
   const {jsPDF}=window.jspdf;
@@ -676,12 +876,30 @@ function genPDF(doc,filename){
   pdf.save(filename); return true;
 }
 function savePdf(id,type){
-  const j=jobById(id); const doc=getDoc(j,type);
+  const j=jobById(id);
+  if(type==='CV'){
+    const cv=getMergedCv(j);
+    if(!cv){showToast('No CV content yet — is your CV parsed?');return;}
+    const w=window.open('','_blank');
+    if(!w){showToast('Allow pop-ups to save the CV as PDF');return;}
+    w.document.open(); w.document.write(renderCvHtml(cv)); w.document.close();
+    const go=()=>{ try{ w.focus(); w.print(); }catch(e){} };
+    if(w.document.readyState==='complete') setTimeout(go,500); else w.onload=()=>setTimeout(go,500);
+    showToast('Choose "Save as PDF" in the print dialog');
+    return;
+  }
+  const doc=getDoc(j,type);
   if(!doc){showToast('No document content to export');return;}
   if(genPDF(doc,fname(j,type,'pdf'))) showToast(`Saved as PDF — ${fname(j,type,'pdf')}`);
 }
 function downloadDocx(id,type){
-  const j=jobById(id), doc=getDoc(j,type);
+  const j=jobById(id);
+  if(type==='CV'){
+    const cv=getMergedCv(j);
+    if(!cv){showToast('No CV content to export yet');return;}
+    buildCvDocx(cv, fname(j,'CV','docx')); return;
+  }
+  const doc=getDoc(j,type);
   if(!doc){showToast('No document content to export');return;}
   buildDocx(doc, fname(j,type,'docx'));
 }
@@ -866,9 +1084,12 @@ Object.assign(window,{ setView,setFilter,toggle,setStatus,toggleStage,openJobUrl
     try{
       const { data: bd } = await JS.sb.from('base_documents')
         .select('raw_file_key, parsed_cv_json').eq('user_id', user.id).maybeSingle();
-      if (bd && bd.raw_file_key && !bd.parsed_cv_json){
-        JS.sb.functions.invoke('parse-cv').then(()=>{}).catch(()=>{});
-        showToast('Analyzing your CV in the background…');
+      if (bd){
+        if (bd.parsed_cv_json) PROFILE = bd.parsed_cv_json;
+        if (bd.raw_file_key && !bd.parsed_cv_json){
+          JS.sb.functions.invoke('parse-cv').then(()=>{}).catch(()=>{});
+          showToast('Analyzing your CV in the background…');
+        }
       }
     }catch(e){}
 
